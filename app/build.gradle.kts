@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.netbuddy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.5.1-ping-replies"
+        versionCode = 13
+        versionName = "1.6.0-report-export"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

@@ -143,3 +143,8 @@ The ICMP screen now uses a dedicated compact dashboard: destination and controls
 ## Ping reply detail update (1.5.1)
 
 Live rows now show sequence, responding address, bytes, RTT, TTL, and a color-coded latency value (green below 50 ms, amber below 100 ms, red at 100 ms or above; timeouts red). The traceroute terminates on the resolved destination address, not merely on a successful probe from an intermediate hop.
+
+
+## Report export update (1.6.0)
+
+Report Export lists local diagnostics like History, supports selecting individual or all records, and shares only the selected reports. Ping reports use the same detailed formatter as the live reply rows, including sequence, responding address, byte count, RTT, TTL and color-indicator latency value. Older saved Ping report rows are normalized when exported. Traceroute results are saved locally and appear in History and Report Export.

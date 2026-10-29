@@ -12,8 +12,11 @@ import kotlinx.coroutines.flow.*
 data class PingState(val running: Boolean = false, val target: String = "", val totals: PingTotals = PingTotals(),
     val samples: List<PingSample> = emptyList(), val status: String = "Ready", val error: String? = null,
     val options: PingOptions = PingOptions(), val tracing: Boolean = false, val traceLines: List<String> = emptyList()) {
-    fun report() = "ICMP Ping · $target\n$status\nPayload: ${options.payloadBytes} bytes · Interval: ${options.intervalMs / 1000.0}s · Timeout: ${options.timeoutSeconds}s\n" +
-        totals.report() + "\n" + samples.joinToString("\n") { it.line() } + (error?.let { "\n$it" } ?: "") +
+    fun report(): String = if (traceLines.isNotEmpty()) {
+        "Traceroute · $target\n${if (tracing) "Running" else status}\n" + traceLines.joinToString("\n") +
+            (error?.let { "\nError: $it" } ?: "") + "\nA missing hop response can be caused by router filtering."
+    } else "ICMP Ping · $target\n$status\nPayload: ${options.payloadBytes} bytes · Interval: ${options.intervalMs / 1000.0}s · Timeout: ${options.timeoutSeconds}s\n" +
+        totals.report() + "\n" + samples.joinToString("\n") { it.reportLine(target, options.payloadBytes + 8) } + (error?.let { "\n$it" } ?: "") +
         "\nA missing reply does not prove the destination is offline; ICMP may be filtered.\nOnly the latest 200 sample rows are retained; counters cover the full run."
 }
 
@@ -61,6 +64,7 @@ class PingViewModel(application: Application) : AndroidViewModel(application) {
         val target = try { Inputs.host(raw) } catch (e: Exception) { mutable.update { it.copy(error=e.message) }; return }
         mutable.update { it.copy(target=target, tracing=true, traceLines=listOf("Tracing route to $target · max $maxHops hops"), error=null) }
         traceJob = viewModelScope.launch {
+            var traceStatus = "Completed"
             try {
                 val destinations = withContext(Dispatchers.IO) {
                     java.net.InetAddress.getAllByName(target).map { it.hostAddress.substringBefore('%').lowercase() }.toSet()
@@ -89,9 +93,19 @@ class PingViewModel(application: Application) : AndroidViewModel(application) {
                         break
                     }
                 }
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(error=e.message ?: "Traceroute failed") } }
-            finally { mutable.update { it.copy(tracing=false) } }
+            } catch (e: CancellationException) { traceStatus = "Stopped"; throw e }
+            catch (e: Exception) { traceStatus = "Error"; mutable.update { it.copy(error=e.message ?: "Traceroute failed") } }
+            finally {
+                mutable.update { it.copy(tracing=false, status=traceStatus) }
+                val result = mutable.value
+                if (result.traceLines.size > 1 || result.error != null) withContext(NonCancellable) {
+                    try {
+                        val summary = "${(result.traceLines.size - 1).coerceAtLeast(0)} route hops · $traceStatus"
+                        repo.save(TestRecord(type="Traceroute", target=target, status=traceStatus, summary=summary,
+                            details=result.copy(tracing=false,status=traceStatus).report()))
+                    } catch (_: Exception) { mutable.update { it.copy(error=(it.error?.plus("\n") ?: "")+"Could not save traceroute history.") } }
+                }
+            }
         }
     }
     fun stopTrace() { traceJob?.cancel() }

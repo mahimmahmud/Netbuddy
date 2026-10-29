@@ -341,11 +341,59 @@ private fun ToolCards(open: (String) -> Unit) {
 }
 @Composable private fun ReportExportPage(records:List<TestRecord>) {
     val context=LocalContext.current
-    Page { Text("Export locally saved diagnostics as text through Android's share sheet.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("${records.size} reports available")
-        Button(enabled=records.isNotEmpty(),onClick={val body=records.joinToString("\n\n---\n\n"){ "${it.type} · ${it.status}\n${it.target}\n${it.details}" }; val intent=android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_SUBJECT,"NetBuddy diagnostic reports").putExtra(android.content.Intent.EXTRA_TEXT,body);context.startActivity(android.content.Intent.createChooser(intent,"Export reports"))},modifier=Modifier.fillMaxWidth()){Text("Share / save reports")}
-        Text("Terminal credentials and transcripts are not included in report history.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    Column(Modifier.fillMaxSize().padding(horizontal=20.dp, vertical=12.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        Text("Choose the saved reports you want to share.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+            Text("${records.size} reports · ${selected.size} selected", Modifier.weight(1f), style=MaterialTheme.typography.labelLarge)
+            TextButton(onClick={selected=if(selected.size==records.size) emptySet() else records.map{it.id}.toSet()},enabled=records.isNotEmpty()) {
+                Text(if(selected.size==records.size && records.isNotEmpty()) "Clear" else "Select all")
+            }
+        }
+        if(records.isEmpty()) Panel { Text("No saved reports yet"); Text("Run a diagnostic first. Reports saved by tools will appear here.",color=MaterialTheme.colorScheme.onSurfaceVariant) }
+        LazyColumn(Modifier.weight(1f), verticalArrangement=Arrangement.spacedBy(10.dp), contentPadding=PaddingValues(bottom=8.dp)) {
+            items(records, key={it.id}) { record ->
+                val checked=record.id in selected
+                Card(onClick={selected=if(checked) selected-record.id else selected+record.id}, modifier=Modifier.fillMaxWidth(),
+                    colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface), border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                        Checkbox(checked=checked,onCheckedChange=null)
+                        IconBubble(record.type.lowercase(),size=38.dp)
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                                Text(record.type,fontWeight=FontWeight.Bold,color=toolColor(record.type))
+                                Text(java.text.SimpleDateFormat("dd MMM, HH:mm",java.util.Locale.getDefault()).format(Date(record.time)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text(record.target,style=MaterialTheme.typography.titleSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Text("${record.status} · ${record.summary}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+        Button(enabled=selected.isNotEmpty(),onClick={
+            val body=records.filter{it.id in selected}.joinToString("\n\n════════════════════\n\n"){exportRecordText(it)}
+            val intent=android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(android.content.Intent.EXTRA_SUBJECT,"NetBuddy diagnostic reports (${selected.size})")
+                .putExtra(android.content.Intent.EXTRA_TEXT,body)
+            context.startActivity(android.content.Intent.createChooser(intent,"Share selected reports"))
+        },modifier=Modifier.fillMaxWidth().heightIn(min=50.dp)){Text("Share ${selected.size} selected report${if(selected.size==1) "" else "s"}")}
+        Text("Terminal passwords and session transcripts are never stored in reports.",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+private fun exportRecordText(record: TestRecord): String {
+    var details=record.details
+    if(record.type.equals("Ping",ignoreCase=true)) {
+        val payload=Regex("Payload: (\\d+)").find(details)?.groupValues?.get(1)?.toIntOrNull() ?: 56
+        val bytes=payload+8
+        val oldRow=Regex("(?m)^#(\\d+) Reply · ([<>]?[0-9.]+) ms · TTL (\\d+)$")
+        details=oldRow.replace(details) { m ->
+            val ms=m.groupValues[2].removePrefix("<")
+            "#${m.groupValues[1]} Reply from ${record.target}: bytes=$bytes time=${m.groupValues[2]} ms TTL=${m.groupValues[3]} · latency=${ms} ms"
+        }
+    }
+    return "${record.type} · ${record.status}\n${record.target}\n${DateFormat.getDateTimeInstance().format(Date(record.time))}\n${record.summary}\n\n$details"
 }
 @Composable private fun NetworkComparePage(network:NetworkState,publicIp:String,model:NetBuddyModel) {
     val context=LocalContext.current; val prefs=remember{context.getSharedPreferences("network_compare",Context.MODE_PRIVATE)}
@@ -488,7 +536,7 @@ private fun HistoryPage(records: List<TestRecord>, model: NetBuddyModel, open: (
             IconButton(enabled = records.isNotEmpty(), onClick = { confirm = true }) { Glyph("delete", "Clear all reports") }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("All", "Ping", "TCP", "DNS", "HTTPS", "Subnet").forEach { type ->
+            listOf("All", "Ping", "Traceroute", "TCP", "DNS", "HTTPS", "Subnet").forEach { type ->
                 FilterChip(selected = filter == type, onClick = { filter = type }, label = { Text(type) }, shape = RoundedCornerShape(14.dp),
                     colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary))

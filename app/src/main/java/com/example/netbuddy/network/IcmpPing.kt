@@ -18,6 +18,14 @@ data class PingSample(val sequence: Int, val sent: Boolean, val received: Boolea
         sent -> "No ICMP reply / timeout"
         else -> "Probe could not be sent"
     }
+    fun reportLine(target: String, defaultBytes: Int): String {
+        if (!received) return "#$sequence " + if (sent) "Request timed out" else "Probe not sent"
+        val bytes = Regex("(\\d+) bytes from", RegexOption.IGNORE_CASE).find(output)?.groupValues?.get(1)?.toIntOrNull() ?: defaultBytes
+        val from = Regex("""from ([0-9a-fA-F:.]+?)(?::\s|\s)""", RegexOption.IGNORE_CASE).find(output)?.groupValues?.get(1) ?: target
+        val time = rttMs?.let { (if (upperBound) "<" else "") + "%.3f ms".format(it) } ?: "unavailable"
+        val latency = rttMs?.let { "%.1f ms".format(it) } ?: "unavailable"
+        return "#$sequence Reply from $from: bytes=$bytes time=$time TTL=${ttl ?: "—"} · latency=$latency"
+    }
 }
 data class PingTotals(val attempts: Int = 0, val sent: Int = 0, val received: Int = 0,
     val timed: Int = 0, val sum: Double = 0.0, val minimum: Double? = null, val maximum: Double? = null, val hasUpperBound: Boolean = false) {
